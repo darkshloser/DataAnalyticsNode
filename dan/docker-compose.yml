@@ -1,0 +1,84 @@
+
+version: '3'
+
+services:
+  db:
+    image: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+  smtp:
+    image: "catatnight/postfix"
+    ports:
+      - "25:25"
+    environment:
+      - maildomain=localhost
+      - smtp_user=localsmtp:localsmtp
+  web:
+    build:
+      context: .
+      dockerfile: docks/python/Dockerfile
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      - DJANGO_DEBUG=true
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  redis:
+    image: redis
+    hostname: redis
+
+  elasticsearch:
+    image: elasticsearch:2
+    container_name: elasticsearch
+    environment:
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms2048m -Xmx2048m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata1:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+
+
+  celery:
+    build:
+      context: .
+      dockerfile: docks/python/Dockerfile
+    environment:
+      - DJANGO_SETTINGS_MODULE=dan.settings
+      - DJANGO_DEBUG=true
+    command: python start-celery-for-dev.py
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+
+  beat:
+    build:
+      context: .
+      dockerfile: docks/python/Dockerfile
+    environment:
+      - DJANGO_SETTINGS_MODULE=dan.settings
+    command: celery -A dan beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+    logging:
+      driver: "none"
+
+volumes:
+  postgres:
+  esdata1:
+    driver: local
